@@ -8,14 +8,15 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.planner.dto.AdviceIn;
 import com.planner.entity.AdviceRecord;
 import com.planner.entity.UserProfile;
-import com.planner.repository.AdviceRecordRepository;
-import com.planner.repository.AssessmentRecordRepository;
-import com.planner.repository.UserProfileRepository;
+import com.planner.mapper.AdviceRecordMapper;
+import com.planner.mapper.AssessmentRecordMapper;
+import com.planner.mapper.UserProfileMapper;
 import com.planner.util.TextUtil;
 import com.planner.util.TxUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
@@ -44,14 +45,14 @@ public class ProfileService {
     public static final String ARCHIVED = "ARCHIVED";
 
     private final ObjectMapper om;
-    private final UserProfileRepository profiles;
-    private final AdviceRecordRepository advices;
-    private final AssessmentRecordRepository records;
+    private final UserProfileMapper profiles;
+    private final AdviceRecordMapper advices;
+    private final AssessmentRecordMapper records;
     private final Path root;
     private final ConcurrentHashMap<Long, Object> fileLocks = new ConcurrentHashMap<>();
 
-    public ProfileService(ObjectMapper om, UserProfileRepository profiles, AdviceRecordRepository advices,
-                          AssessmentRecordRepository records, @Value("${app.profile-dir}") String dir) {
+    public ProfileService(ObjectMapper om, UserProfileMapper profiles, AdviceRecordMapper advices,
+                          AssessmentRecordMapper records, @Value("${app.profile-dir}") String dir) {
         this.om = om;
         this.profiles = profiles;
         this.advices = advices;
@@ -66,13 +67,14 @@ public class ProfileService {
     // ---------- 读 ----------
 
     public boolean exists(long uid) {
-        return profiles.existsByUserId(uid);
+        return profiles.countByUserId(uid) > 0;
     }
 
     /** 结构化画像（不含建议）；不存在返回 null */
     @Transactional(readOnly = true)
     public ObjectNode load(long uid) {
-        return profiles.findByUserId(uid).map(p -> parse(p.getProfileJson())).orElse(null);
+        UserProfile p = profiles.selectByUserId(uid);
+        return p == null ? null : parse(p.getProfileJson());
     }
 
     /** 完整视图 = 画像 + advices[]（ACTIVE，新的在前）。画像页、对话提示词、导出文件都用它。 */
@@ -81,7 +83,7 @@ public class ProfileService {
         ObjectNode p = load(uid);
         if (p == null) return null;
         ArrayNode arr = p.putArray("advices");
-        for (AdviceRecord a : advices.findByUserIdAndStatusOrderByIdDesc(uid, ACTIVE)) {
+        for (AdviceRecord a : advices.selectByUserAndStatusDesc(uid, ACTIVE)) {
             ObjectNode n = arr.addObject();
             n.put("id", a.getId());
             n.put("category", a.getCategory());
@@ -98,11 +100,14 @@ public class ProfileService {
     /** 测评提交后：写入/覆盖最新画像，并把常用字段提取到列上。 */
     @Transactional
     public void saveLatest(long uid, long assessmentId, ObjectNode p) {
-        UserProfile up = profiles.lockByUserId(uid).orElseGet(() -> {
-            UserProfile n = new UserProfile();
-            n.setUserId(uid);
-            return n;
-        });
+        LocalDateTime now = LocalDateTime.now();
+        UserProfile up = profiles.lockByUserId(uid);
+        boolean isNew = up == null;
+        if (isNew) {
+            up = new UserProfile();
+            up.setUserId(uid);
+            up.setCreatedAt(now);
+        }
         up.setAssessmentId(assessmentId);
         up.setNickname(p.path("nickname").asText(""));
         up.setAge(p.path("age").asInt());
@@ -116,23 +121,41 @@ public class ProfileService {
         up.setSummary(p.path("summary").asText(""));
         up.setSummaryStatus(p.path("summaryStatus").asText("PENDING"));
         up.setProfileJson(write(p));
-        profiles.save(up);
+        up.setUpdatedAt(now);
+        if (isNew) profiles.insert(up);
+        else profiles.updateById(up);
         TxUtil.afterCommit(() -> exportFile(uid));
     }
 
-    /** 异步摘要生成完毕：写入对应测评记录；若该测评仍是最新画像，同步更新 user_profile。 */
+    /** 摘要生成完毕：写入对应测评记录；若该测评仍是最新画像，同步更新 user_profile。 */
     @Transactional
     public void updateSummary(long uid, long assessmentId, String summary, String status) {
-        records.findById(assessmentId).filter(r -> r.getUserId().equals(uid)).ifPresent(r -> r.setSummary(summary));
-        profiles.lockByUserId(uid).filter(p -> Objects.equals(p.getAssessmentId(), assessmentId)).ifPresent(p -> {
+        applySummary(uid, assessmentId, summary, status);
+    }
+
+    /** 摘要最终失败（重试用尽，或入队失败）：用模板摘要兜底并标记 FAILED。独立事务，可在 afterCommit 回调中安全调用。 */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markSummaryFailed(long uid, long assessmentId) {
+        ObjectNode p = load(uid);
+        if (p == null) return;
+        applySummary(uid, assessmentId, fallbackSummary(p), "FAILED");
+    }
+
+    private void applySummary(long uid, long assessmentId, String summary, String status) {
+        LocalDateTime now = LocalDateTime.now();
+        records.updateSummary(assessmentId, uid, summary, now);
+        UserProfile p = profiles.lockByUserId(uid);
+        if (p != null && Objects.equals(p.getAssessmentId(), assessmentId)) {
             ObjectNode n = parse(p.getProfileJson());
             n.put("summary", summary);
             n.put("summaryStatus", status);
-            n.put("updatedAt", LocalDateTime.now().toString());
+            n.put("updatedAt", now.toString());
             p.setSummary(summary);
             p.setSummaryStatus(status);
             p.setProfileJson(write(n));
-        });
+            p.setUpdatedAt(now);
+            profiles.updateById(p);
+        }
         TxUtil.afterCommit(() -> exportFile(uid));
     }
 
@@ -140,11 +163,11 @@ public class ProfileService {
     @Transactional
     public int addAdvices(long uid, String sessionId, Long messageId, List<AdviceIn> items) {
         if (items.isEmpty()) return 0;
-        UserProfile up = profiles.lockByUserId(uid).orElse(null);   // 同时作为按用户串行化的锁
+        UserProfile up = profiles.lockByUserId(uid);   // 同时作为按用户串行化的锁
         if (up == null) return 0;
 
         List<Set<String>> seen = new ArrayList<>();
-        for (AdviceRecord a : advices.findTop100ByUserIdOrderByIdDesc(uid)) seen.add(TextUtil.bigrams(a.getContent()));
+        for (AdviceRecord a : advices.selectRecentByUser(uid, 100)) seen.add(TextUtil.bigrams(a.getContent()));
 
         int added = 0;
         for (AdviceIn it : items) {
@@ -159,12 +182,13 @@ public class ProfileService {
             a.setCategory(it.category());
             a.setContent(it.content());
             a.setStage(up.getStage());
-            advices.save(a);
+            a.setCreatedAt(LocalDateTime.now());
+            advices.insert(a);
             added++;
         }
 
-        List<AdviceRecord> active = advices.findByUserIdAndStatusOrderByIdAsc(uid, ACTIVE);
-        for (int i = 0; i < active.size() - MAX_ADVICES; i++) active.get(i).setStatus(ARCHIVED);
+        List<AdviceRecord> active = advices.selectByUserAndStatusAsc(uid, ACTIVE);
+        for (int i = 0; i < active.size() - MAX_ADVICES; i++) advices.updateStatus(active.get(i).getId(), ARCHIVED);
 
         if (added > 0) TxUtil.afterCommit(() -> exportFile(uid));
         return added;
@@ -173,9 +197,9 @@ public class ProfileService {
     /** 用户删除建议（软删除，保留用于去重）。 */
     @Transactional
     public boolean deleteAdvice(long uid, long adviceId) {
-        Optional<AdviceRecord> a = advices.findByIdAndUserId(adviceId, uid).filter(x -> ACTIVE.equals(x.getStatus()));
-        if (a.isEmpty()) return false;
-        a.get().setStatus(DELETED);
+        AdviceRecord a = advices.selectByIdAndUser(adviceId, uid);
+        if (a == null || !ACTIVE.equals(a.getStatus())) return false;
+        advices.updateStatus(a.getId(), DELETED);
         TxUtil.afterCommit(() -> exportFile(uid));
         return true;
     }

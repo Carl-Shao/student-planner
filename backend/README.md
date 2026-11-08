@@ -3,7 +3,7 @@
 Spring Boot 3.2 / Java 17 / MySQL 8 / Redis / Ollama(qwen 7B)
 
 ## 启动
-1. 执行 `sql/schema.sql`（或直接用 `ddl-auto: update` 自动建表，库需先建好并使用 utf8mb4）
+1. 执行 `sql/schema.sql` 建库建表（utf8mb4）。持久层是 MyBatis，不会自动建表，表结构以该文件为准
 2. 启动 Redis；`ollama serve`，确认 `ollama list` 里的模型名与 `app.ollama.model` 一致
 3. 设置环境变量 `DB_USER / DB_PASSWORD / JWT_SECRET`（JWT_SECRET 至少 32 字节）
 4. `mvn spring-boot:run`
@@ -50,8 +50,8 @@ com.planner
 ├─ controller   接口层：Auth / Assessment / Profile / Chat（只做参数校验与转发）
 ├─ service      业务层：AuthService, SmsService, AssessmentService, ProfileService, ChatService, KnowledgeBase
 ├─ task         @Async 异步任务：ProfileSummaryTask（画像摘要）、AdviceExtractor（建议提取）
-├─ repository   数据访问：UserRepository, AssessmentRecordRepository, ChatMessageRepository（Spring Data JPA）
-├─ entity       JPA 实体：User, AssessmentRecord, ChatMessage
+├─ mapper       数据访问：6 个 MyBatis Mapper 接口（SQL 在 resources/mapper/*.xml）
+├─ entity       实体（普通 POJO）：User, AssessmentRecord, UserProfile, AdviceRecord, ChatSession, ChatMessage
 ├─ dto          请求/响应对象：AuthDtos, AssessmentDtos, ChatDtos, AdviceIn, Msg
 ├─ client       外部系统客户端：OllamaClient；client.sms 下为短信通道（Mock/Http/Aliyun/Tencent）
 ├─ security     AuthInterceptor, JwtUtil
@@ -60,7 +60,7 @@ com.planner
 ├─ config       WebConfig, AsyncConfig
 └─ util         TextUtil
 ```
-依赖方向：controller → service → (repository | client | domain)，security/common/util 可被各层使用。
+依赖方向：controller → service → (mapper | client | domain)，security/common/util 可被各层使用。
 
 ## 数据库（v2）
 | 表 | 作用 |
@@ -72,9 +72,24 @@ com.planner
 | chat_session | 会话列表：title/message_count/last_message_at，(user_id, session_id) 唯一 |
 | chat_message | 消息（不变） |
 
-升级：已有库执行 `sql/migration_v2.sql` 再执行 `schema.sql` 里的新表；或直接依赖 `ddl-auto: update`。
+升级：已有库执行 `sql/migration_v2.sql` 再执行 `schema.sql` 里的新表（持久层已改为 MyBatis，不再有 `ddl-auto` 自动改表）。
 
 数据流：
 - 提交测评 → 写 assessment_record + user_profile（事务）→ 提交后异步生成摘要 → 回写两张表的 summary（若 user_profile 已被更新的测评取代则丢弃）→ 导出画像文件
 - 一轮对话 → chat_message + chat_session 同一事务 → 异步提取建议 → advice_record（按用户行锁串行、与最近 100 条含已删除的去重、ACTIVE 最多 30 条，多的标 ARCHIVED）
 - GET /api/profile = user_profile.profile_json + 当前 ACTIVE 建议；用户删除建议为软删除，避免被重新提取
+
+## AI 任务队列（Redis Stream）
+范围：画像摘要（PROFILE_SUMMARY）、建议提取（ADVICE_EXTRACT）。对话流式输出和发短信不走队列。
+- 入队：测评提交事务**提交后**入队；一轮对话落库后入队。入队失败只记日志，不影响主流程（摘要会直接改用模板摘要并标记 FAILED）。
+- 消费：`app.ai-queue.concurrency` 个 worker（也是同时调用本地模型的上限，默认 1）。成功 XACK+XDEL；失败按 `n×30 秒` 退避重试，最多 3 次，用尽进死信队列并回调 `onDead`（摘要→模板兜底）。
+- 崩溃恢复：重启时 worker 先重读自己名下未确认的消息；巡检线程每 ~30 秒把"取走超过 300 秒仍未确认"的消息重新入队。任务至少执行一次，处理器均为幂等。
+- Redis key：`ai:tasks`（待处理）、`ai:tasks:delayed`（等待重试）、`ai:tasks:dead`（死信，保留 1000 条）。
+- 排查：`redis-cli XLEN ai:tasks`、`redis-cli XPENDING ai:tasks ai-workers`、`redis-cli XRANGE ai:tasks:dead - +`、`redis-cli ZCARD ai:tasks:delayed`。
+
+## 持久层：MyBatis
+- `mybatis-spring-boot-starter`，Mapper 接口在 `com.planner.mapper`（`MybatisConfig` 里 `@MapperScan`），SQL 在 `src/main/resources/mapper/*.xml`（和若依一致的写法）。
+- 开启 `map-underscore-to-camel-case`；自增主键用 `useGeneratedKeys` 回填；时间字段由 Java 代码在新增/更新时显式设置（不再有 JPA 的 `@PrePersist/@PreUpdate`）。
+- 事务仍用 `@Transactional`（`DataSourceTransactionManager`）；画像/建议的"按用户串行化"用 `SELECT ... FOR UPDATE`（`UserProfileMapper.lockByUserId`）。
+- 并发注册、重复提交等唯一键冲突会被转换成 Spring 的 `DuplicateKeyException`（`DataIntegrityViolationException` 子类），业务代码里仍按原方式捕获。
+- `MapperXmlTest` 无需数据库即可校验：所有 XML 能解析，且每个 Mapper 方法都有对应的 SQL 语句。

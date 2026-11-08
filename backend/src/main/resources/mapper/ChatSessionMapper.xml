@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.planner.mapper.ChatSessionMapper">
+  <sql id="cols">id, user_id, session_id, title, message_count, last_message_at, created_at, updated_at</sql>
+
+  <select id="selectByUserAndSessionId" resultType="com.planner.entity.ChatSession">
+    select <include refid="cols"/> from chat_session where user_id = #{userId} and session_id = #{sessionId}
+  </select>
+
+  <select id="selectRecentByUser" resultType="com.planner.entity.ChatSession">
+    select <include refid="cols"/> from chat_session
+    where user_id = #{userId} order by last_message_at desc limit #{limit}
+  </select>
+
+  <insert id="insert" parameterType="com.planner.entity.ChatSession" useGeneratedKeys="true" keyProperty="id">
+    insert into chat_session (user_id, session_id, title, message_count, last_message_at, created_at, updated_at)
+    values (#{userId}, #{sessionId}, #{title}, #{messageCount}, #{lastMessageAt}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <update id="touch">
+    update chat_session set message_count = message_count + 2, last_message_at = #{now}, updated_at = #{now}
+    where id = #{id}
+  </update>
+
+  <update id="updateTitle">
+    update chat_session set title = #{title}, updated_at = #{now} where id = #{id}
+  </update>
+
+  <delete id="deleteById">
+    delete from chat_session where id = #{id}
+  </delete>
+</mapper>

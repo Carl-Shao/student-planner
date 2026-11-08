@@ -10,9 +10,10 @@ import com.planner.domain.QuestionBank;
 import com.planner.domain.QuestionBank.Question;
 import com.planner.domain.StageUtil;
 import com.planner.entity.AssessmentRecord;
-import com.planner.repository.AssessmentRecordRepository;
-import com.planner.repository.UserRepository;
-import com.planner.task.ProfileSummaryTask;
+import com.planner.mapper.AssessmentRecordMapper;
+import com.planner.mapper.UserMapper;
+import com.planner.queue.AiTaskQueue;
+import com.planner.queue.AiTaskTypes;
 import com.planner.util.TxUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -30,9 +31,9 @@ public class AssessmentService {
 
     private final ObjectMapper om;
     private final ProfileService profiles;
-    private final ProfileSummaryTask summaryTask;
-    private final UserRepository users;
-    private final AssessmentRecordRepository records;
+    private final AiTaskQueue aiTasks;
+    private final UserMapper users;
+    private final AssessmentRecordMapper records;
     private final StringRedisTemplate redis;
 
     @Transactional
@@ -56,12 +57,18 @@ public class AssessmentService {
             } catch (JsonProcessingException e) {
                 throw new BizException(400, "答案格式错误");
             }
-            records.save(rec);
-            users.findById(uid).ifPresent(u -> u.setAssessmentDone(true));
+            LocalDateTime now = LocalDateTime.now();
+            rec.setCreatedAt(now);
+            rec.setUpdatedAt(now);
+            records.insert(rec);
+            users.markAssessmentDone(uid);
 
             profiles.saveLatest(uid, rec.getId(), profile);   // 最新画像入 user_profile，提交后自动导出画像文件
             long recId = rec.getId();
-            TxUtil.afterCommit(() -> summaryTask.generate(uid, recId));   // 事务提交后再异步生成 AI 摘要
+            TxUtil.afterCommit(() -> {   // 事务提交后再入队，保证 worker 读到已提交的数据
+                boolean queued = aiTasks.enqueue(AiTaskTypes.PROFILE_SUMMARY, Map.of("uid", uid, "assessmentId", recId));
+                if (!queued) profiles.markSummaryFailed(uid, recId);   // Redis 不可用：直接用模板摘要，避免一直 PENDING
+            });
 
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("assessmentId", recId);
@@ -78,9 +85,9 @@ public class AssessmentService {
 
     public Map<String, Object> status(long uid) {
         Map<String, Object> m = new LinkedHashMap<>();
-        var last = records.findTopByUserIdOrderByIdDesc(uid);
-        m.put("done", last.isPresent());
-        m.put("lastAt", last.map(r -> r.getCreatedAt().toString()).orElse(null));
+        AssessmentRecord last = records.selectLatestByUserId(uid);
+        m.put("done", last != null);
+        m.put("lastAt", last == null ? null : String.valueOf(last.getCreatedAt()));
         return m;
     }
 

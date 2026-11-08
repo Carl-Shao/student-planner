@@ -5,15 +5,17 @@ spring:
     url: jdbc:mysql://${DB_HOST:localhost}:3306/student_planner?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${DB_USER:root}
     password: ${DB_PASSWORD:root}
-  jpa:
-    hibernate:
-      ddl-auto: update        # 生产环境建议改为 validate 并使用 sql/schema.sql 建表
-    open-in-view: false
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: 6379
       password: ${REDIS_PASSWORD:}
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.planner.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    jdbc-type-for-null: 'NULL'
 app:
   cors-origins: http://localhost:5173,http://localhost:3000
   jwt:
@@ -52,3 +54,8 @@ app:
       model: bge-m3
       min-score: 0.4                 # 余弦相似度阈值，按实际效果调（日志 debug 级别会打印 top 分数）
       cache-file: ./data/knowledge-cache/embeddings.json
+  ai-queue:                          # AI 后台任务队列（Redis Stream）：画像摘要、建议提取
+    concurrency: 1                   # 同时调用本地模型的后台任务数；对话流式输出不走队列
+    max-attempts: 3                  # 最多尝试次数，用尽后进入死信队列 ai:tasks:dead
+    retry-backoff-seconds: 30        # 第 n 次失败后等待 n×30 秒再重试
+    reclaim-idle-seconds: 300        # 被取走后超过该时间仍未确认，视为 worker 崩溃并重新入队（须大于模型超时 180 秒）

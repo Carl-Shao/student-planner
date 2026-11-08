@@ -8,8 +8,9 @@ import com.planner.common.BizException;
 import com.planner.dto.ChatDtos.*;
 import com.planner.dto.Msg;
 import com.planner.entity.ChatMessage;
-import com.planner.repository.ChatMessageRepository;
-import com.planner.task.AdviceExtractor;
+import com.planner.mapper.ChatMessageMapper;
+import com.planner.queue.AiTaskQueue;
+import com.planner.queue.AiTaskTypes;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskRejectedException;
@@ -50,9 +51,9 @@ public class ChatService {
     private final OllamaClient ollama;
     private final ProfileService profiles;
     private final KnowledgeBase kb;
-    private final ChatMessageRepository repo;
+    private final ChatMessageMapper repo;
     private final ChatSessionService sessions;
-    private final AdviceExtractor extractor;
+    private final AiTaskQueue aiTasks;
     private final StringRedisTemplate redis;
     private final ObjectMapper om;
     private final ThreadPoolTaskExecutor aiExecutor;
@@ -137,7 +138,7 @@ public class ChatService {
         List<Msg> msgs = new ArrayList<>();
         msgs.add(new Msg("system", SYSTEM_PROMPT.formatted(profileText, kbText.toString().trim())));
 
-        List<ChatMessage> hist = new ArrayList<>(repo.findTop6ByUserIdAndSessionIdOrderByIdDesc(uid, sid));
+        List<ChatMessage> hist = new ArrayList<>(repo.selectRecent(uid, sid, 6));
         Collections.reverse(hist);
         for (ChatMessage m : hist) {
             String c = m.getContent() == null ? "" : m.getContent();
@@ -150,7 +151,9 @@ public class ChatService {
 
     private void persist(long uid, String sid, String userMsg, String reply) {
         Long msgId = sessions.saveExchange(uid, sid, userMsg, reply);   // 消息 + 会话，一个事务
-        extractor.extractAndMerge(uid, sid, msgId, userMsg, reply);     // 异步提取建议写入 advice_record
+        // 入队失败只记日志，不影响本次对话（建议提取是锦上添花）
+        aiTasks.enqueue(AiTaskTypes.ADVICE_EXTRACT, Map.of(
+                "uid", uid, "sessionId", sid, "messageId", msgId, "userMsg", userMsg, "reply", reply));
     }
 
     private String sessionOf(ChatReq req) {

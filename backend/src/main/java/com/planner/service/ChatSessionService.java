@@ -5,8 +5,8 @@ import com.planner.dto.ChatDtos.MsgView;
 import com.planner.dto.ChatDtos.SessionView;
 import com.planner.entity.ChatMessage;
 import com.planner.entity.ChatSession;
-import com.planner.repository.ChatMessageRepository;
-import com.planner.repository.ChatSessionRepository;
+import com.planner.mapper.ChatMessageMapper;
+import com.planner.mapper.ChatSessionMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,8 +24,8 @@ import java.util.regex.Pattern;
 public class ChatSessionService {
     private static final Pattern SID = Pattern.compile("^[A-Za-z0-9-]{1,64}$");
 
-    private final ChatSessionRepository sessions;
-    private final ChatMessageRepository messages;
+    private final ChatSessionMapper sessions;
+    private final ChatMessageMapper messages;
 
     /** 没传 sessionId 则新建一个；传了则校验格式。 */
     public String resolve(String sid) {
@@ -41,37 +41,32 @@ public class ChatSessionService {
     /** 保存一轮问答（用户消息 + 助手回复）并更新会话；返回助手消息 id。 */
     @Transactional
     public Long saveExchange(long uid, String sid, String userMsg, String reply) {
-        ChatSession s = sessions.findByUserIdAndSessionId(uid, sid).orElseGet(() -> {
-            ChatSession n = new ChatSession();
-            n.setUserId(uid);
-            n.setSessionId(sid);
-            n.setTitle(titleOf(userMsg));
-            return n;
-        });
+        LocalDateTime now = LocalDateTime.now();
+        ChatSession s = sessions.selectByUserAndSessionId(uid, sid);
 
-        ChatMessage u = new ChatMessage();
-        u.setUserId(uid);
-        u.setSessionId(sid);
-        u.setRole("user");
-        u.setContent(userMsg);
-        messages.save(u);
+        messages.insert(newMessage(uid, sid, "user", userMsg, now));
+        ChatMessage a = newMessage(uid, sid, "assistant", reply, now);
+        messages.insert(a);
 
-        ChatMessage a = new ChatMessage();
-        a.setUserId(uid);
-        a.setSessionId(sid);
-        a.setRole("assistant");
-        a.setContent(reply);
-        messages.save(a);
-
-        s.setMessageCount(s.getMessageCount() + 2);
-        s.setLastMessageAt(LocalDateTime.now());
-        sessions.save(s);
+        if (s == null) {
+            s = new ChatSession();
+            s.setUserId(uid);
+            s.setSessionId(sid);
+            s.setTitle(titleOf(userMsg));
+            s.setMessageCount(2);
+            s.setLastMessageAt(now);
+            s.setCreatedAt(now);
+            s.setUpdatedAt(now);
+            sessions.insert(s);
+        } else {
+            sessions.touch(s.getId(), now);
+        }
         return a.getId();
     }
 
     @Transactional(readOnly = true)
     public List<SessionView> list(long uid) {
-        return sessions.findTop50ByUserIdOrderByLastMessageAtDesc(uid).stream()
+        return sessions.selectRecentByUser(uid, 50).stream()
                 .map(s -> new SessionView(s.getSessionId(), s.getTitle(), s.getMessageCount(), s.getLastMessageAt(), s.getCreatedAt()))
                 .toList();
     }
@@ -80,7 +75,7 @@ public class ChatSessionService {
     @Transactional(readOnly = true)
     public List<MsgView> history(long uid, String sid) {
         requireValid(sid);
-        List<ChatMessage> l = new ArrayList<>(messages.findTop50ByUserIdAndSessionIdOrderByIdDesc(uid, sid));
+        List<ChatMessage> l = new ArrayList<>(messages.selectRecent(uid, sid, 50));
         Collections.reverse(l);
         return l.stream().map(m -> new MsgView(m.getRole(), m.getContent(), m.getCreatedAt())).toList();
     }
@@ -88,17 +83,29 @@ public class ChatSessionService {
     @Transactional
     public void rename(long uid, String sid, String title) {
         requireValid(sid);
-        ChatSession s = sessions.findByUserIdAndSessionId(uid, sid).orElseThrow(() -> new BizException(404, "会话不存在"));
-        s.setTitle(title.strip());
+        ChatSession s = sessions.selectByUserAndSessionId(uid, sid);
+        if (s == null) throw new BizException(404, "会话不存在");
+        sessions.updateTitle(s.getId(), title.strip(), LocalDateTime.now());
     }
 
     /** 删除会话及其全部消息（已从中提取的建议保留在画像里，可在画像页单独删除）。 */
     @Transactional
     public void delete(long uid, String sid) {
         requireValid(sid);
-        ChatSession s = sessions.findByUserIdAndSessionId(uid, sid).orElseThrow(() -> new BizException(404, "会话不存在"));
-        messages.deleteByUserIdAndSessionId(uid, sid);
-        sessions.delete(s);
+        ChatSession s = sessions.selectByUserAndSessionId(uid, sid);
+        if (s == null) throw new BizException(404, "会话不存在");
+        messages.deleteBySession(uid, sid);
+        sessions.deleteById(s.getId());
+    }
+
+    private static ChatMessage newMessage(long uid, String sid, String role, String content, LocalDateTime now) {
+        ChatMessage m = new ChatMessage();
+        m.setUserId(uid);
+        m.setSessionId(sid);
+        m.setRole(role);
+        m.setContent(content);
+        m.setCreatedAt(now);
+        return m;
     }
 
     private static String titleOf(String msg) {

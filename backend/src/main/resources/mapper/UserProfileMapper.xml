@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.planner.mapper.UserProfileMapper">
+  <sql id="cols">id, user_id, assessment_id, nickname, age, gender, grade, city, stage, mbti, holland_code,
+    completeness, summary, summary_status, profile_json, created_at, updated_at</sql>
+
+  <select id="selectByUserId" resultType="com.planner.entity.UserProfile">
+    select <include refid="cols"/> from user_profile where user_id = #{userId}
+  </select>
+
+  <select id="countByUserId" resultType="int">
+    select count(1) from user_profile where user_id = #{userId}
+  </select>
+
+  <select id="lockByUserId" resultType="com.planner.entity.UserProfile">
+    select <include refid="cols"/> from user_profile where user_id = #{userId} for update
+  </select>
+
+  <insert id="insert" parameterType="com.planner.entity.UserProfile" useGeneratedKeys="true" keyProperty="id">
+    insert into user_profile (user_id, assessment_id, nickname, age, gender, grade, city, stage, mbti, holland_code,
+      completeness, summary, summary_status, profile_json, created_at, updated_at)
+    values (#{userId}, #{assessmentId}, #{nickname}, #{age}, #{gender}, #{grade}, #{city}, #{stage}, #{mbti}, #{hollandCode},
+      #{completeness}, #{summary}, #{summaryStatus}, #{profileJson}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <update id="updateById" parameterType="com.planner.entity.UserProfile">
+    update user_profile set
+      assessment_id = #{assessmentId}, nickname = #{nickname}, age = #{age}, gender = #{gender},
+      grade = #{grade}, city = #{city}, stage = #{stage}, mbti = #{mbti}, holland_code = #{hollandCode},
+      completeness = #{completeness}, summary = #{summary}, summary_status = #{summaryStatus},
+      profile_json = #{profileJson}, updated_at = #{updatedAt}
+    where id = #{id}
+  </update>
+</mapper>

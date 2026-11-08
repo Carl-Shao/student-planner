@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.planner.mapper.AssessmentRecordMapper">
+  <sql id="cols">id, user_id, answers_json, stage, mbti, profile_path, profile_json, summary, created_at, updated_at</sql>
+
+  <insert id="insert" parameterType="com.planner.entity.AssessmentRecord" useGeneratedKeys="true" keyProperty="id">
+    insert into assessment_record (user_id, answers_json, stage, mbti, profile_path, profile_json, summary, created_at, updated_at)
+    values (#{userId}, #{answersJson}, #{stage}, #{mbti}, #{profilePath}, #{profileJson}, #{summary}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <select id="selectLatestByUserId" resultType="com.planner.entity.AssessmentRecord">
+    select <include refid="cols"/> from assessment_record
+    where user_id = #{userId} order by id desc limit 1
+  </select>
+
+  <update id="updateSummary">
+    update assessment_record set summary = #{summary}, updated_at = #{now}
+    where id = #{id} and user_id = #{userId}
+  </update>
+</mapper>
