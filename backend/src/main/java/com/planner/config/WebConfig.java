@@ -1,6 +1,6 @@
 package com.planner.config;
 
-import com.planner.auth.AuthInterceptor;
+import com.planner.security.AuthInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;

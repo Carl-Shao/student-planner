@@ -1,6 +1,5 @@
 <!doctype html>
 <html lang="zh-CN">
-
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,113 +7,172 @@
     <meta name="description" content="输入分数与科类，1 分钟获得冲稳保院校参考，并可预约规划师。">
     <link rel="stylesheet" href="styles.css">
     <style>
-        /* AI 对话框专属样式（首页） */
+        /* ========== 全局液态玻璃核心变量 ========== */
+        :root {
+            --brown: #8b6b4d;
+            --brown-2: #b59b7a;
+            --gold-warm: #c9ab82;        /* 暖金基底 · 降明度 */
+            --gold-bright: #ddc79e;      /* 高光亮金 · 降明度 */
+            --gold-deep: #a8875e;        /* 深金棕 · 降明度 */
+            --ink: #1e1e1e;
+        }
+
+        /* ===== AI 对话框：只保留内部发光输入行，删除外层框 ===== */
         .ai-box {
             width: min(600px, 100%);
             margin-top: 16px;
             display: flex;
             flex-direction: column;
             gap: 14px;
-            padding: 12px;
-            border-radius: 24px;
-            background: rgba(0, 0, 0, .12);
-            border: 1px solid rgba(255, 255, 255, .22);
-            box-shadow: 0 18px 50px rgba(0, 0, 0, .25);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            /* 无外层框：无背景、无边框、无阴影、无模糊 */
+            padding: 0;
+            background: none;
+            border: none;
+            box-shadow: none;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
         }
 
+        /* 输入行：液态玻璃 + 暖金棕发光（明度降低） */
         .ai-row {
             display: flex;
             align-items: center;
             gap: 13px;
-            padding: 14px 12px;
-            border-radius: 16px;
-            background: rgba(0, 0, 0, .6);
-            border: 1px solid rgba(255, 255, 255, .09);
-            transition: border-color .25s;
+            padding: 14px 16px;
+            border-radius: 22px;
+            background: rgba(30, 22, 14, 0.28);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1.5px solid rgba(201, 171, 130, 0.24);
+            box-shadow: 
+                0 0 0 0.6px rgba(221, 199, 158, 0.12) inset,
+                0 0 14px rgba(201, 171, 130, 0.10) inset,
+                -4px -4px 10px rgba(221, 199, 158, 0.04) inset,
+                4px 4px 10px rgba(0, 0, 0, 0.35) inset,
+                0 12px 32px rgba(0, 0, 0, 0.55),
+                0 0 22px rgba(168, 135, 94, 0.08),
+                0 0 0 1px rgba(201, 171, 130, 0.05);
+            position: relative;
+            isolation: isolate;
+            transition: border-color 0.25s, box-shadow 0.25s;
+            z-index: 1;
+        }
+
+        .ai-row::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: 22px;
+            padding: 1px;
+            background: linear-gradient(120deg, 
+                rgba(221, 199, 158, 0.30) 0%, 
+                rgba(201, 171, 130, 0.20) 30%,
+                rgba(168, 135, 94, 0.12) 55%,
+                rgba(181, 155, 122, 0.10) 80%,
+                rgba(139, 107, 77, 0.14) 100%);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+            z-index: 2;
+            opacity: 0.7;
         }
 
         .ai-row.focused {
-            border-color: rgba(236, 222, 172, .9)
+            border-color: rgba(221, 199, 158, 0.40);
+            box-shadow: 
+                0 0 0 0.8px rgba(221, 199, 158, 0.18) inset,
+                0 0 18px rgba(201, 171, 130, 0.16) inset,
+                -6px -6px 14px rgba(221, 199, 158, 0.05) inset,
+                6px 6px 14px rgba(0, 0, 0, 0.40) inset,
+                0 16px 40px rgba(0, 0, 0, 0.60),
+                0 0 28px rgba(168, 135, 94, 0.12),
+                0 0 0 1px rgba(201, 171, 130, 0.08);
         }
 
+        .ai-row.focused::before {
+            opacity: 0.85;
+            background: linear-gradient(130deg, 
+                rgba(221, 199, 158, 0.40) 0%, 
+                rgba(201, 171, 130, 0.28) 35%,
+                rgba(168, 135, 94, 0.18) 65%,
+                rgba(181, 155, 122, 0.14) 100%);
+            filter: blur(0.4px);
+        }
+
+        /* 左侧发光圆点（暖金棕 · 明度降低） */
         .ai-orb {
             width: 28px;
             height: 28px;
             flex: 0 0 28px;
             position: relative;
             display: grid;
-            place-items: center
+            place-items: center;
+            filter: drop-shadow(0 0 5px rgba(201, 171, 130, 0.35));
         }
 
         .ai-ring {
             position: absolute;
             inset: 5px;
             border-radius: 50%;
-            border: 1.5px solid rgba(246, 236, 196, .95);
+            border: 1.5px solid rgba(221, 199, 158, 0.42);
             animation: ai-ring 1.5s ease-out infinite;
-            box-shadow: 0 0 8px rgba(246, 236, 196, .55);
+            box-shadow: 
+                0 0 5px rgba(221, 199, 158, 0.28),
+                0 0 12px rgba(201, 171, 130, 0.15),
+                inset 0 0 4px rgba(221, 199, 158, 0.20);
+            filter: blur(0.3px);
         }
 
         .ai-ring:nth-child(2) {
             animation-delay: .75s;
-            border-color: rgba(236, 222, 172, .7)
+            border-color: rgba(201, 171, 130, 0.30);
         }
 
         .ai-dot {
-            width: 11px;
-            height: 11px;
+            width: 12px;
+            height: 12px;
             border-radius: 50%;
-            background: #f6ecc4;
+            background: radial-gradient(circle at 35% 35%, 
+                #e8d9bc, 
+                #ddc79e 25%, 
+                #c9ab82 55%, 
+                #a8875e 90%);
             box-shadow:
-                0 0 12px rgba(246, 236, 196, 1),
-                0 0 26px rgba(236, 222, 172, .75),
-                0 0 44px rgba(192, 162, 114, .45);
-            animation: ai-orb 1.5s ease-in-out infinite
+                0 0 5px rgba(221, 199, 158, 0.45),
+                0 0 12px rgba(201, 171, 130, 0.30),
+                0 0 24px rgba(168, 135, 94, 0.18),
+                0 0 1px 1px rgba(221, 199, 158, 0.35) inset;
+            animation: ai-orb 1.5s ease-in-out infinite;
+            position: relative;
+            z-index: 2;
         }
 
         @keyframes ai-orb {
-
-            0%,
-            100% {
-                transform: scale(.84);
-                filter: brightness(.9)
-            }
-
-            45% {
-                transform: scale(1.08);
-                filter: brightness(1.25)
-            }
-
-            60% {
-                transform: scale(.96);
-                filter: brightness(1.08)
-            }
+            0%, 100% { transform: scale(.84); filter: brightness(.80) drop-shadow(0 0 3px rgba(201,171,130,0.30)); }
+            45% { transform: scale(1.08); filter: brightness(1.05) drop-shadow(0 0 8px rgba(221,199,158,0.42)); }
+            60% { transform: scale(.96); filter: brightness(.92) drop-shadow(0 0 5px rgba(221,199,158,0.34)); }
         }
 
         @keyframes ai-ring {
-            0% {
-                transform: scale(.65);
-                opacity: .65
-            }
-
-            75%,
-            100% {
-                transform: scale(1.7);
-                opacity: 0
-            }
+            0% { transform: scale(.65); opacity: .5; }
+            75%, 100% { transform: scale(1.7); opacity: 0; }
         }
 
+        /* 文字与输入 */
         .ai-text {
             flex: 1;
             min-height: 29px;
             font-size: 18px;
             line-height: 1.35;
-            color: rgba(255, 255, 255, .96);
+            color: rgba(240, 230, 214, 0.92);
             letter-spacing: -.01em;
             text-align: left;
             cursor: text;
+            text-shadow: 0 0 5px rgba(201, 171, 130, 0.22), 0 1px 3px rgba(0, 0, 0, 0.5);
+            position: relative;
+            z-index: 3;
         }
 
         .ai-input {
@@ -127,13 +185,17 @@
             font-size: 18px;
             line-height: 1.35;
             letter-spacing: -.01em;
-            color: #fff;
+            color: #efe4d0;
             padding: 0;
-            caret-color: var(--brown-2);
+            caret-color: var(--gold-bright);
+            text-shadow: 0 0 4px rgba(201, 171, 130, 0.30);
+            position: relative;
+            z-index: 3;
         }
 
         .ai-input::placeholder {
-            color: rgba(255, 255, 255, .35)
+            color: rgba(201, 171, 130, 0.35);
+            text-shadow: 0 0 3px rgba(201, 171, 130, 0.12);
         }
 
         .ai-caret {
@@ -142,94 +204,63 @@
             height: 1.05em;
             margin-left: 3px;
             vertical-align: -.14em;
-            background: rgba(255, 255, 255, .88);
-            animation: caret .9s step-end infinite
+            background: var(--gold-bright);
+            box-shadow: 0 0 5px rgba(221, 199, 158, 0.40), 0 0 10px rgba(201, 171, 130, 0.25);
+            animation: caret .9s step-end infinite;
         }
 
         @keyframes caret {
-
-            0%,
-            45% {
-                opacity: 1
-            }
-
-            46%,
-            100% {
-                opacity: 0
-            }
+            0%, 45% { opacity: 1; }
+            46%, 100% { opacity: 0; }
         }
 
+        /* 发送按钮 */
         .ai-send {
             width: 34px;
             height: 34px;
-            border-radius: 10px;
+            border-radius: 12px;
             flex: 0 0 34px;
-            background: var(--brown);
+            background: rgba(139, 107, 77, 0.55);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
             display: grid;
             place-items: center;
             opacity: 0;
             transform: scale(.8);
             transition: all .2s;
             pointer-events: none;
+            border: 1px solid rgba(201, 171, 130, 0.28);
+            box-shadow: 
+                0 0 6px rgba(221, 199, 158, 0.12) inset,
+                0 4px 16px rgba(0, 0, 0, 0.45),
+                0 0 0 1px rgba(201, 171, 130, 0.06);
+            position: relative;
+            z-index: 3;
         }
 
         .ai-send.show {
             opacity: 1;
             transform: none;
-            pointer-events: auto
+            pointer-events: auto;
         }
 
         .ai-send:hover {
-            background: var(--brown-2)
+            background: rgba(181, 155, 122, 0.70);
+            box-shadow: 
+                0 0 10px rgba(221, 199, 158, 0.22) inset,
+                0 6px 22px rgba(0, 0, 0, 0.55),
+                0 0 0 1px rgba(201, 171, 130, 0.12);
         }
 
         .ai-send svg {
             width: 16px;
             height: 16px;
-            stroke: #fff;
-            fill: none
+            stroke: #ddc79e;
+            fill: none;
+            filter: drop-shadow(0 0 2px rgba(221, 199, 158, 0.30));
         }
 
-        .ai-foot {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 6px 4px;
-            gap: 10px
-        }
-
-        .ai-dots {
-            display: flex;
-            gap: 6px;
-            flex: 0 0 auto
-        }
-
-        .ai-dots span {
-            width: 6px;
-            height: 6px;
-            border-radius: 99px;
-            background: rgba(255, 255, 255, .28);
-            transition: all .22s
-        }
-
-        .ai-dots span.on {
-            width: 20px;
-            background: #fff
-        }
-
-        .ai-icons {
-            display: flex;
-            gap: 14px;
-            color: rgba(255, 255, 255, .6);
-            flex: 0 0 auto
-        }
-
-        .ai-icons svg {
-            width: 22px;
-            height: 22px
-        }
-
-        /* 自定义 logo：图片 + 名称，最左边 */
+        /* 自定义 logo */
         .logo {
             display: flex;
             align-items: center;
@@ -237,33 +268,43 @@
             font-weight: 700;
             font-size: 20px;
             color: #fff;
-            flex-shrink: 0
+            flex-shrink: 0;
         }
 
         .logo img {
             height: 32px;
             width: auto;
-            display: block
+            display: block;
         }
 
         .site-header.scrolled .logo {
-            color: var(--ink)
+            color: var(--ink);
         }
 
-        /* 导航居中 */
+        /* ========== 核心修改：导航靠左 ========== */
         .nav {
-            flex: 1;
+            flex: 0 1 auto;            /* 不再占据全部剩余空间，只包裹内容 */
             display: flex;
-            justify-content: center
+            justify-content: flex-start;  /* 内部靠左 */
+            margin-right: auto;          /* 把右侧空间推给 CTA，实现整体靠左 */
         }
 
-        /* 免费测评按钮最右边 */
+        /* 如果希望导航与 logo 之间也有些间距，可保留 gap，但不再居中 */
+        .header-inner {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            width: 100%;
+            padding: 0 30px;
+            box-sizing: border-box;
+        }
+
         .header-cta {
             flex-shrink: 0;
-            margin-left: auto
+            margin-left: 0;            /* 移除原来的 auto，因为导航已经 margin-right:auto 推开 */
         }
 
-        /* 页头布局：完全去掉 wrap 约束，紧贴屏幕边缘 */
+        /* 保持原来 header 宽度设置 */
         header.site-header .wrap,
         header#header .wrap,
         .site-header>.wrap {
@@ -285,7 +326,6 @@
             box-sizing: border-box !important;
         }
 
-        /* ===== 标题 + 对话框：垂直居中 + 渐入动画 ===== */
         .hero {
             min-height: 100svh;
         }
@@ -306,31 +346,16 @@
             animation: heroIn .9s cubic-bezier(.23, 1, .32, 1) forwards;
         }
 
-        .hero-eyebrow {
-            animation-delay: .15s;
-        }
-
-        .hero h1 {
-            animation-delay: .35s;
-        }
-
-        .ai-box {
-            animation-delay: .6s;
-        }
-
-        .hero-actions {
-            animation-delay: .85s;
-        }
+        .hero-eyebrow { animation-delay: .15s; }
+        .hero h1 { animation-delay: .35s; }
+        .ai-box { animation-delay: .6s; }
+        .hero-actions { animation-delay: .85s; }
 
         @keyframes heroIn {
-            to {
-                opacity: 1;
-                transform: none;
-            }
+            to { opacity: 1; transform: none; }
         }
 
         @media (prefers-reduced-motion: reduce) {
-
             .hero-eyebrow,
             .hero h1,
             .ai-box,
@@ -340,9 +365,10 @@
                 transform: none;
             }
         }
+
+        /* 移动端菜单等保留原样，不做修改 */
     </style>
 </head>
-
 <body>
 
     <header class="site-header" id="header">
@@ -351,6 +377,7 @@
                 <img src="assets/logo.png" alt="智途">
                 <span>智途</span>
             </a>
+            <!-- 导航靠左：使用 flex-start，并由 margin-right:auto 使整体靠左 -->
             <nav class="nav">
                 <div class="nav-item"><a class="nav-link active" href="index.html">首页</a></div>
                 <div class="nav-item"><a class="nav-link" href="assess.html">开始测评</a></div>
@@ -358,7 +385,7 @@
                 <div class="nav-item"><a class="nav-link" href="contact.html">预约咨询</a></div>
             </nav>
             <div class="header-cta">
-                <a href="login.html" class="login-text-link" id="loginBtn">登录 / 注册</a>
+                <a href="login.html" class="glass-pill glass-pill--lg" id="loginBtn">登录 / 注册</a>
                 <button class="burger" id="burger" aria-label="菜单"
                     aria-expanded="false"><span></span><span></span><span></span></button>
             </div>
@@ -380,10 +407,11 @@
         <div class="hero-overlay"></div>
 
         <div class="hero-content">
-            <div class="hero-eyebrow">AI × 专家，双重护航</div>
-            <h1>1 分钟，测测你的升学方向</h1>
+            <div class="hero-eyebrow">认识自己 再出发</div>
+            <h1>从MBTI到多维能力画像</h1>
+            <h1>生成专属学习档案</h1>
 
-            <!-- AI 对话框：内部轮播相关搜索（打字特效） -->
+            <!-- AI 对话框：删除外层框，只保留内部发光输入行 -->
             <div class="ai-box">
                 <div class="ai-row" id="aiRow">
                     <div class="ai-orb" aria-hidden="true">
@@ -401,27 +429,11 @@
                         </svg>
                     </button>
                 </div>
-                <div class="ai-foot">
-                    <div class="ai-dots" id="aiDots" aria-hidden="true">
-                        <span class="on"></span><span></span><span></span><span></span><span></span>
-                    </div>
-                    <div class="ai-icons" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                            stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="9" y="3" width="6" height="11" rx="3" />
-                            <path d="M6.5 11a5.5 5.5 0 0 0 11 0M12 16.5V21M9 21h6" />
-                        </svg>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                            stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M8 4H4v4M4 4l6 6M16 20h4v-4M20 20l-6-6" />
-                        </svg>
-                    </div>
-                </div>
             </div>
 
             <div class="hero-actions" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px">
                 <a href="assess.html" class="btn btn-primary">开始免费测评</a>
-                <a href="compare.html" class="btn btn-ghost">查看我的对比</a>
+                <a href="compare.html" class="glass-pill glass-pill--lg">查看我的对比</a>
             </div>
         </div>
     </section>
@@ -437,12 +449,10 @@
             const aiInput = document.getElementById('aiInput');
             const aiSend = document.getElementById('aiSend');
             const aiRow = document.getElementById('aiRow');
-            const aiDots = document.getElementById('aiDots');
 
             const caret = document.createElement('span');
             caret.className = 'ai-caret';
 
-            // 相关搜索词（在框内轮播）
             const lines = [
                 "620 分能冲哪些 985？",
                 "考研择校怎么平衡院校和专业？",
@@ -491,21 +501,12 @@
                 aiInput.style.display = 'block';
                 aiInput.focus();
                 aiRow.classList.add('focused');
-                updateDots(1);
-            }
-
-            function updateDots(idx) {
-                Array.from(aiDots.children).forEach((d, i) => {
-                    d.classList.toggle('on', i === idx);
-                });
             }
 
             renderTyping('');
             setTimeout(tick, 900);
-            // 轮播两轮后自动切到输入模式
             setTimeout(() => { if (!typingDone) switchToInput(); }, 9000);
 
-            // 点击文字区域进入输入模式
             aiText.addEventListener('click', switchToInput);
             aiRow.addEventListener('click', e => {
                 if (e.target === aiInput || e.target === aiSend) return;
@@ -514,7 +515,6 @@
 
             aiInput.addEventListener('input', () => {
                 aiSend.classList.toggle('show', aiInput.value.trim().length > 0);
-                updateDots(aiInput.value.trim() ? 2 : 1);
             });
 
             aiInput.addEventListener('keydown', e => {
@@ -538,5 +538,4 @@
         })();
     </script>
 </body>
-
 </html>

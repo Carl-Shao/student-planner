@@ -37,12 +37,15 @@ export const assessmentStatus = () => http.get('/assessment/status')
 
 // ---- 画像 ----
 export const getProfile = () => http.get('/profile')   // summaryStatus === 'PENDING' 时可 3 秒轮询
-export const deleteAdvice = (id) => http.delete(`/profile/advices/${id}`)
+export const deleteAdvice = (id) => http.delete(`/profile/advices/${id}`)   // id 为数字（advice_record.id）
 export const downloadProfileUrl = `${BASE}/profile/download` // 需带 token，建议用 axios blob 下载
 
 // ---- 对话 ----
 export const chatOnce = (message, sessionId) => http.post('/chat', { message, sessionId })
 export const chatHistory = (sessionId) => http.get('/chat/history', { params: { sessionId } })
+export const chatSessions = () => http.get('/chat/sessions')                          // 会话列表
+export const renameChatSession = (sid, title) => http.put(`/chat/sessions/${sid}/title`, { title })
+export const deleteChatSession = (sid) => http.delete(`/chat/sessions/${sid}`)
 
 /** 流式对话（SSE over fetch）：onMeta({sessionId}) / onToken(text) / onDone() / onError(msg) */
 export async function chatStream(message, sessionId, { onMeta, onToken, onDone, onError, signal } = {}) {

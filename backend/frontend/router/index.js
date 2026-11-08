@@ -9,6 +9,12 @@ const routes = [
     meta: { requiresAuth: true, title: '首页 - 学涯规划助手' },
   },
   {
+    path: '/chat/:sessionId',           // 打开某个历史会话（与首页同一组件，按 sessionId 加载历史）
+    name: 'ChatSession',
+    component: () => import('@/views/Home.vue'),
+    meta: { requiresAuth: true, title: '对话 - 学涯规划助手' },
+  },
+  {
     path: '/login',
     name: 'Login',
     component: () => import('@/views/Login.vue'),
